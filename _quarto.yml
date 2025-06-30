@@ -1,0 +1,12 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "GEMS Status"
+  
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    toc: true
