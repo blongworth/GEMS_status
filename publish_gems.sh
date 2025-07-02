@@ -6,6 +6,6 @@
 
 QUARTO_PATH=/Applications/quarto/bin/quarto
 
-$QUARTO_PATH render gems_parse_web.qmd -P start_date:$(date -v-7d "+%Y-%m-%d")
+$QUARTO_PATH render index.qmd -P start_date:$(date -v-7d "+%Y-%m-%d")
 #$QUARTO_PATH render read_parse_web.qmd
-$QUARTO_PATH publish gh-pages gems_parse_web.qmd --no-render --no-prompt --no-browser
+$QUARTO_PATH publish gh-pages --no-render --no-prompt --no-browser
