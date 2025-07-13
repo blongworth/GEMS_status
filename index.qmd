@@ -4,7 +4,7 @@ format: html
 editor: source
 echo: false
 params:
-  start_date: 2025-07-13
+  start_date: 2025-07-01
 ---
 
 Get and parse data sent to GEMS website. Data from `r params$start_date` to present.
@@ -172,18 +172,26 @@ adv_data_mean <- adv_data_qc |>
 #### Last ADV reading was at: `r max(adv_data_qc$timestamp, na.rm = TRUE)`
 
 
-GEMS Status changes
+### GEMS Status changes
+
 
 ```{r}
-turbo |> 
+error_status <- turbo |> 
   select(timestamp, sn = status) |> 
   filter(sn != 0) |> 
   mutate(status = factor(sn,
                    levels = c(1, 2, 4, 5, 6, 7, 8, 9, 11, 12),
                    labels = c("GEMS Start", "GEMS Starting", "GEMS started", "Turbo Error Shutdown", "GEMS Stop", "RGA Filament Off", "GEMS shutdown complete", "GEMS Starting", "RGA Starting filament", "Turbo at speed"))) |>
-  select(timestamp, status) |>
-  knitr::kable()
+  select(timestamp, status)
+
+if (nrow(error_status) > 0) {
+  knitr::kable(error_status)
+} else {
+    print("No GEMS status changes")
+}
 ```
+
+### Post times
 
 ```{r}
 ct <- post_times |> 
@@ -203,7 +211,7 @@ if (nrow(dt > 0)) {
     ggtitle("Incorrect Lander timestamps")
   ggplotly(itp)
 } else {
-  print(knitr::asis_output("#### No incorrect lander timestamps!"))
+  print("No incorrect lander timestamps")
 }
 ```
 
