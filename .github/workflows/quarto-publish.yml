@@ -36,8 +36,8 @@ jobs:
         uses: r-lib/actions/setup-renv@v2
         
       - name: Render Quarto Document
-        # run: quarto render
-        run: ./publish_gems.sh
+        run: quarto render
+        #run: ./publish_gems.sh
         
       - name: Setup Pages
         uses: actions/configure-pages@v4
