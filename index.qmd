@@ -4,7 +4,7 @@ format: html
 editor: source
 echo: false
 params:
-  start_date: 2025-06-23
+  start_date: 2025-07-13
 ---
 
 Get and parse data sent to GEMS website. Data from `r params$start_date` to present.
@@ -13,10 +13,12 @@ Get and parse data sent to GEMS website. Data from `r params$start_date` to pres
 #| warning: false
 #| message: false
 
-library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
 library(lubridate)
 library(gemstools)
-library(patchwork)
 library(plotly)
 
 theme_set(theme_bw())
@@ -48,7 +50,8 @@ post_times <- lecs_post_times(df)
 rga <- gems_rga_data(df)
 status <- lecs_status_data(df)
 adv_data <- lecs_adv_data(df)
-turbo <- gems_turbo_status(df)
+# rows with missing elements are status changes
+turbo <- suppressWarnings(gems_turbo_status(df)) 
 temp <- gems_temp_data(df)
 ```
 
@@ -75,7 +78,8 @@ rga_wide <- rga |>
     # Calculate minutes since the hour
     min_since_hour = as.numeric(difftime(timestamp, floor_date(timestamp, "hour"), units = "mins")),
     # Determine inlet state: "low" for first 7.5 min, then alternate every 7.5 min
-    inlet = ifelse(floor(min_since_hour / 7.5) %% 2 == 0, "low", "high")
+    inlet = ifelse(floor(min_since_hour / 7.5) %% 2 == 0, "low", "high"),
+    across(starts_with("mass_"), ~ .x / mass_40, .names = "{.col}_40") 
   )
 ```
 
@@ -125,6 +129,7 @@ status_mean <- status_qc |>
                         sd = ~ sd(.x, na.rm = TRUE))))
 
 temp_mean <- temp |> 
+  select(send, timestamp, temp) |>
   group_by(send) |>
   summarise(across(everything(), 
                    list(mean = ~ mean(.x, na.rm = TRUE), 
@@ -138,10 +143,11 @@ turbo_mean <- turbo |>
                         sd = ~ sd(.x, na.rm = TRUE))))
 
 rga_mean <- rga_wide |> 
-  group_by(send) |> 
+  group_by(send, inlet) |> 
   summarise(across(everything(),
                    list(mean = ~ mean(.x, na.rm = TRUE), 
-                        sd = ~ sd(.x, na.rm = TRUE))))
+                        sd = ~ sd(.x, na.rm = TRUE))),
+            .groups = 'drop')
 
 adv_data_mean <- adv_data_qc |> 
   select(send, missing, timestamp, 
@@ -159,9 +165,25 @@ adv_data_mean <- adv_data_qc |>
 
 ## Status
 
-#### Last post was `r max(post_times$timestamp, na.rm = TRUE)`
+#### Last post was at: `r max(post_times$timestamp, na.rm = TRUE)`
 
-How many status lines are in the wrong year?
+#### Last RGA reading was at: `r max(rga_wide$timestamp, na.rm = TRUE)`
+
+#### Last ADV reading was at: `r max(adv_data_qc$timestamp, na.rm = TRUE)`
+
+
+GEMS Status changes
+
+```{r}
+turbo |> 
+  select(timestamp, sn = status) |> 
+  filter(sn != 0) |> 
+  mutate(status = factor(sn,
+                   levels = c(1, 2, 4, 5, 6, 7, 8, 9, 11, 12),
+                   labels = c("GEMS Start", "GEMS Starting", "GEMS started", "Turbo Error Shutdown", "GEMS Stop", "RGA Filament Off", "GEMS shutdown complete", "GEMS Starting", "RGA Starting filament", "Turbo at speed"))) |>
+  select(timestamp, status) |>
+  knitr::kable()
+```
 
 ```{r}
 ct <- post_times |> 
@@ -169,30 +191,36 @@ ct <- post_times |>
 
 dt <- status |> 
   select(send, lander_time = timestamp) |> 
-  inner_join(ct) |> 
+  inner_join(ct, by = "send") |> 
   mutate(td = as.numeric(difftime(post_time, lander_time, units = 'secs'))) |> 
-  filter(td < 0 | td > 600) 
+  filter(abs(td) > 60 * 20) 
 
 if (nrow(dt > 0)) {
-  dt |> 
+  itp <- dt |> 
     ggplot(aes(post_time, lander_time)) +
     geom_point() + 
     scale_x_datetime(date_labels = "%Y-%m-%d") +
     ggtitle("Incorrect Lander timestamps")
+  ggplotly(itp)
 } else {
-  "No incorrect lander timestamps!"
+  print(knitr::asis_output("#### No incorrect lander timestamps!"))
 }
 ```
+
 ### Teensy Temp
 
 Junction temp of Surface teensy. Runs at 50C at room temp. >95C kills teensies.
 
 ```{r}
-temp_mean |> 
-  plot_mean(temp_mean, temp_sd) +
-  geom_smooth() +
+tp <- temp_mean |> 
+  ggplot(aes(timestamp_mean, temp_mean)) +
+  #geom_smooth() +
+  geom_line() +
   labs(title = "Teensy temperature",
+       x = NULL,
        y = "Degrees C")
+
+ggplotly(tp)
 ```
 
 
@@ -209,7 +237,10 @@ turbo_bat <- turbo_mean |>
   geom_smooth() +
   labs(title = "Turbo Voltage (nom: 24V)",
        y = "Volts")
-adv_bat / turbo_bat
+subplot(ggplotly(adv_bat), ggplotly(turbo_bat), nrows = 2, shareX = TRUE) |> 
+  layout(title = "Battery voltage",
+         xaxis = list(title = NULL),
+         yaxis = list(title = "Volts"))
 ```
 
 ### Turbo
@@ -225,36 +256,40 @@ turbo_p <- turbo_mean |>
   geom_smooth() +
   labs(title = "Turbo power",
        y = "W")
-turbo_s / turbo_p
+subplot(ggplotly(turbo_s), ggplotly(turbo_p), nrows = 2, shareX = TRUE) |> 
+  layout(title = "Turbo speed and power",
+         xaxis = list(title = NULL))
 ```
 
 ```{r}
-turbo_mean |> 
+tt <- turbo_mean |> 
   select(timestamp_mean, e_temp_mean, p_temp_mean, m_temp_mean) |> 
   pivot_longer(ends_with("temp_mean")) |>
   ggplot(aes(timestamp_mean, value, color = name)) +
-  geom_smooth(aes(timestamp_mean, value), se = FALSE) +
-  geom_smooth(aes(timestamp_mean, value, color = NULL)) +
-  geom_point() +
+  #geom_smooth(aes(timestamp_mean, value), se = FALSE) +
+  #geom_smooth(aes(timestamp_mean, value, color = NULL)) +
+  geom_line() +
+  #geom_point() +
   labs(title = "Turbo temperature",
        x = NULL,
        y = "Degrees C")
-  
+ggplotly(tt)  
 ```
 
 ## RGA
 
 ```{r}
-rga_mean |> 
+rmp <- rga_mean |> 
   select(timestamp_mean, mass_18_mean, mass_28_mean, mass_40_mean) |> 
   pivot_longer(starts_with("mass")) |>
   ggplot(aes(timestamp_mean, value, color = name)) +
-  geom_smooth(aes(timestamp_mean, value), se = FALSE) +
-  geom_smooth(aes(timestamp_mean, value, color = NULL)) +
-  geom_point() +
+  geom_line() +
   labs(title = "RGA",
        x = NULL,
-       y = "Pressure (Torr)")
+       y = "Pressure (Torr)") +
+  scale_y_log10() +
+  ylim(1e-10, 1e-7)
+ggplotly(rmp)
 ```
 
 ### Oxygen
@@ -268,27 +303,42 @@ gg <- rga_wide |>
   #geom_smooth(aes(timestamp, value), se = FALSE) +
   geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "RGA",
+  labs(title = "Oxygen",
        x = NULL,
        y = "Pressure (Torr)")
 
 ggplotly(gg)
 ```
 
+```{r}
+gg <- rga_wide |> 
+  filter(mass_32_40 < 30,
+         mass_32_40 > 10) |> 
+  select(timestamp,mass_32_40, inlet) |> 
+  pivot_longer(starts_with("mass")) |>
+  ggplot(aes(timestamp, value, color = inlet)) +
+  geom_line(linewidth = .5) +
+  geom_point(size = .5) +
+  labs(title = "Oxygen/Argon",
+       x = NULL,
+       y = "O2:Ar")
+
+ggplotly(gg)
+```
 ### Carbon dioxide
 
 ```{r}
 gg <- rga_wide |> 
-  filter(mass_44 < 1e-10) |> 
-  select(timestamp,mass_44, inlet) |> 
+  filter(mass_44_40 < 1.8,
+         mass_44_40 > 0) |> 
+  select(timestamp,mass_44_40, inlet) |> 
   pivot_longer(starts_with("mass")) |>
   ggplot(aes(timestamp, value, color = inlet)) +
-  geom_smooth(aes(timestamp, value), se = FALSE) +
+  geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "CO2",
+  labs(title = "CO2/Ar",
        x = NULL,
-       y = "Pressure (Torr)")
-
+       y = "CO2:Ar")
 ggplotly(gg)
 ```
 
@@ -296,16 +346,16 @@ ggplotly(gg)
 
 ```{r}
 gg <- rga_wide |> 
-  filter(mass_44 < 1e-10) |> 
-  select(timestamp,mass_16, inlet) |> 
+  filter(mass_16_40 < 12,
+         mass_16_40 > 0) |> 
+  select(timestamp,mass_16_40, inlet) |> 
   pivot_longer(starts_with("mass")) |>
   ggplot(aes(timestamp, value, color = inlet)) +
-  geom_smooth(aes(timestamp, value), se = FALSE) +
+  geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "CO2",
+  labs(title = "CH4/Ar",
        x = NULL,
-       y = "Pressure (Torr)")
-
+       y = "CH4:Ar")
 ggplotly(gg)
 ```
 
@@ -313,16 +363,16 @@ ggplotly(gg)
 
 ```{r}
 gg <- rga_wide |> 
-  filter(mass_44 < 1e-10) |> 
-  select(timestamp,mass_34, inlet) |> 
+  filter(mass_34_40 < 0.5,
+         mass_34_40 > 0) |> 
+  select(timestamp,mass_34_40, inlet) |> 
   pivot_longer(starts_with("mass")) |>
   ggplot(aes(timestamp, value, color = inlet)) +
-  geom_smooth(aes(timestamp, value), se = FALSE) +
+  geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "CO2",
+  labs(title = "H2S/Ar",
        x = NULL,
-       y = "Pressure (Torr)")
-
+       y = "H2S:Ar")
 ggplotly(gg)
 ```
 
@@ -331,51 +381,51 @@ ggplotly(gg)
 ### Pressure/Depth
 
 ```{r}
-adv_data_mean |> 
+pp <- adv_data_mean |> 
   plot_mean(pressure_mean, pressure_sd) +
   scale_y_reverse() +
   labs(title = "Pressure",
        y = "Pressure (dbar)")
+ggplotly(pp)
 ```
 
 ### ADV Correlation
 
 ```{r}
-adv_data_mean |> 
+cp <- adv_data_mean |> 
   select(timestamp_mean, corr1_mean, corr2_mean, corr3_mean) |> 
   pivot_longer(starts_with("corr")) |>
   ggplot(aes(timestamp_mean, value, color = name)) +
-  geom_smooth(aes(timestamp_mean, value), se = FALSE) +
-  geom_smooth(aes(timestamp_mean, value, color = NULL)) +
-  geom_point() +
+  geom_line() +
   labs(title = "ADV correlation",
        x = NULL,
        y = "Correlation (%)")
+ggplotly(cp)
 ```
 
 ### ADV Amplitude
 
 ```{r}
-adv_data_mean |> 
+ap <- adv_data_mean |> 
   select(timestamp_mean, amp1_mean, amp2_mean, amp3_mean) |> 
   pivot_longer(starts_with("amp")) |>
   ggplot(aes(timestamp_mean, value, color = name)) +
-  geom_smooth(aes(timestamp_mean, value), se = FALSE) +
-  geom_smooth(aes(timestamp_mean, value, color = NULL)) +
-  geom_point() +
+  geom_line() +
   labs(title = "ADV amplitude",
        x = NULL,
        y = "Amplitude")
+ggplotly(ap)
 ```
 
 ### ADV Vertical Velocity
 
 ```{r}
-adv_data_mean |> 
+avp <- adv_data_mean |> 
   plot_mean(w_mean, w_sd) +
   ylim(-0.1, 0.1) +
   labs(title = "Vertical velocity",
        y = "cm/s")
+ggplotly(avp)
 ```
 
 ### ADV Alongshore Velocity
@@ -383,11 +433,12 @@ adv_data_mean |>
 ADV set up with x axis parallel to shore. Positive is North.
 
 ```{r}
-adv_data_mean |> 
+aap <- adv_data_mean |> 
   plot_mean(u_mean, u_sd) +
   ylim(-0.5, 0.5) +
   labs(title = "Alongshore velocity",
        y = "cm/s")
+ggplotly(aap)
 ```
 
 ### ADV Onshore velocity
@@ -395,11 +446,12 @@ adv_data_mean |>
 Positive is offshore
 
 ```{r}
-adv_data_mean |> 
+aop <- adv_data_mean |> 
   plot_mean(v_mean, v_sd) +
   ylim(-0.5, 0.5) +
   labs(title = "Onshore velocity",
        y = "cm/s")
+ggplotly(aop)
 ```
 
 ## IMU data
@@ -422,8 +474,10 @@ rp <- status_mean |>
   geom_smooth() +
   labs(title = "Roll",
        y = "Degrees")
-
-hp / pp / rp
+subplot(ggplotly(hp), ggplotly(pp), ggplotly(rp), nrows = 3, shareX = TRUE) |>
+  layout(title = "IMU data",
+         xaxis = list(title = NULL),
+         yaxis = list(title = "Degrees"))
 ```
 
 ## Data issues
@@ -447,6 +501,14 @@ Missing data includes bad packets. Need to separate out.
 
 
 ```{r}
+adv_raw_missing <- adv_data |> 
+  select(send, line, count) |> 
+  mutate(missing = lecs_missing(count, line)) |> 
+  filter(!is.na(missing)) |> 
+  group_by(send) |> 
+  summarise(missing_frac = sum(missing) / (sum(missing) + n()),
+            N = n())
+
 adv_missing <- adv_data_qc |> 
   select(send, missing) |> 
   inner_join(post_times) |> 
@@ -455,13 +517,18 @@ adv_missing <- adv_data_qc |>
   summarise(missing_frac = sum(missing) / (sum(missing) + n()),
             N = n())
 
-adv_missing |> 
+amp <- adv_missing |> 
   ggplot(aes(timestamp, missing_frac)) +
   geom_point() +
   labs(title = "Fraction missing by send",
        x = NULL,
        y = "Fraction missing")
+ggplotly(amp)
 ```
+
+Average fraction missing per send in raw data `r mean(adv_raw_missing$missing_frac, na.rm = TRUE)`
+
+Average fraction of missing or bad data per send `r mean(adv_missing$missing_frac, na.rm = TRUE)`
 
 ### Post times
 
@@ -475,10 +542,11 @@ post_times |>
 ### Lines per post
 
 ```{r}
-post_times |> 
+ptp <- post_times |> 
   ggplot(aes(timestamp, row_count)) +
   geom_point() +
   labs(title = "Lines per post",
        x = NULL,
        y = "Lines")
+ggplotly(ptp)
 ```
