@@ -122,9 +122,9 @@ Calculate per-send means
 
 ```{r}
 status_mean <- status_qc |> 
-  select(send, timestamp, bat, heading, pitch, roll) |> 
+  select(send, timestamp, bat, heading, pitch, roll, temp) |> 
   group_by(send) |> 
-  summarise(across(c(timestamp, bat, heading, pitch, roll), 
+  summarise(across(c(timestamp, bat, heading, pitch, roll, temp), 
                    list(mean = ~ mean(.x, na.rm = TRUE), 
                         sd = ~ sd(.x, na.rm = TRUE))))
 
@@ -231,6 +231,19 @@ tp <- temp_mean |>
 ggplotly(tp)
 ```
 
+### Seawater temp
+
+Using ADV sensor at mid-height
+
+```{r}
+adv_temp <- status_mean |> 
+  ggplot(aes(timestamp_mean, temp_mean)) +
+  geom_line() +
+  labs(title = "ADV Temperature (C)",
+       x = NULL,
+       y = "Deg C")
+ggplotly(adv_temp)
+```
 
 ### Battery
 
@@ -503,6 +516,36 @@ aop <- adv_data_mean |>
   labs(title = "Onshore velocity",
        y = "cm/s")
 ggplotly(aop)
+```
+
+### Horizontal velocity
+
+Magnitude and direction of horizontal current.
+
+* x axis is alongshore, positive north
+* 0 degrees is northward alongshore
+* 180 is southward alongshore
+
+```{r}
+adv_data_mean <- adv_data_mean |> 
+  mutate(
+    cur_speed = sqrt(v_mean^2 + u_mean^2),
+    cur_dir = atan2(u_mean, v_mean) * (180 / pi))
+  
+avp <- adv_data_mean |> 
+  ggplot(aes(timestamp_mean, cur_speed)) +
+  geom_line() +
+  labs(title = "Horizontal velocity",
+       y = "cm/s")
+adp <- adv_data_mean |>
+  ggplot(aes(timestamp_mean, cur_dir)) +
+  geom_line() +
+  labs(title = "Horizontal velocity direction",
+       y = "Degrees")
+subplot(ggplotly(avp), ggplotly(adp), nrows = 2, shareX = TRUE) |>
+  layout(title = "Horizontal velocity",
+         xaxis = list(title = NULL, autorange = TRUE),
+         yaxis = list(title = "cm/s", autorange = TRUE))
 ```
 
 ## IMU data
