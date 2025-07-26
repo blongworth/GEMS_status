@@ -299,37 +299,39 @@ ggplotly(tt)
 
 ## RGA
 
+### Water and N2
+
 ```{r}
 rmp <- rga_mean |> 
-  select(timestamp_mean, mass_18_mean, mass_28_mean, mass_40_mean) |> 
+  select(timestamp_mean, mass_18_mean, mass_28_mean) |> 
   pivot_longer(starts_with("mass")) |>
   ggplot(aes(timestamp_mean, value, color = name)) +
   geom_line() +
   labs(title = "RGA",
        x = NULL,
        y = "Pressure (Torr)") +
-  scale_y_log10() +
-  ylim(1e-10, 1e-7)
+  scale_y_log10()
 ggplotly(rmp)
 ```
 
-### Oxygen
+### Argon
 
 ```{r}
 gg <- rga_wide |> 
-  filter(mass_32 < 2e-9) |> 
-  select(timestamp,mass_32, inlet) |> 
+  select(timestamp, mass_40, inlet) |> 
   pivot_longer(starts_with("mass")) |>
   ggplot(aes(timestamp, value, color = inlet)) +
   #geom_smooth(aes(timestamp, value), se = FALSE) +
   geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "Oxygen",
+  labs(title = "Argon mass 40",
        x = NULL,
        y = "Pressure (Torr)")
 
 ggplotly(gg)
 ```
+
+### Oxygen
 
 ```{r}
 gg <- rga_wide |> 
@@ -346,6 +348,7 @@ gg <- rga_wide |>
 
 ggplotly(gg)
 ```
+
 ### Carbon dioxide
 
 ```{r}
@@ -374,7 +377,7 @@ gg <- rga_wide |>
   ggplot(aes(timestamp, value, color = inlet)) +
   geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "CH4/Ar",
+  labs(title = "CH4/Ar mass 16",
        x = NULL,
        y = "CH4:Ar")
 ggplotly(gg)
@@ -404,11 +407,12 @@ gg <- rga_wide |>
   ggplot(aes(timestamp, value, color = inlet)) +
   geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "H2O/Ar",
+  labs(title = "H2O/Ar mass 18",
        x = NULL,
        y = "H2O:Ar")
 ggplotly(gg)
 ```
+
 ### Hydrogen sulphide
 
 ```{r}
@@ -420,7 +424,7 @@ gg <- rga_wide |>
   ggplot(aes(timestamp, value, color = inlet)) +
   geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "H2S/Ar",
+  labs(title = "H2S/Ar mass 34",
        x = NULL,
        y = "H2S:Ar")
 ggplotly(gg)
@@ -435,11 +439,12 @@ gg <- rga_wide |>
   ggplot(aes(timestamp, value, color = inlet)) +
   geom_line(linewidth = .5) +
   geom_point(size = .5) +
-  labs(title = "N2:Ar",
+  labs(title = "N2/Ar mass 28",
        x = NULL,
        y = "N2:Ar")
 ggplotly(gg)
 ```
+
 ## ADV
 
 ### Pressure/Depth
