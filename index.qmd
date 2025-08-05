@@ -178,12 +178,13 @@ adv_data_mean <- adv_data_qc |>
 ```{r}
 error_status <- turbo |> 
   select(timestamp, sn = status) |> 
-  filter(sn != 0) |> 
+  filter(sn != 0,
+         sn <= 12) |> 
   mutate(status = factor(sn,
                    levels = c(1, 2, 4, 5, 6, 7, 8, 9, 11, 12),
                    labels = c("GEMS Start", "GEMS Starting", "GEMS started", "Turbo Error Shutdown", "GEMS Stop", "RGA Filament Off", "GEMS shutdown complete", "GEMS Starting", "RGA Starting filament", "Turbo at speed"))) |>
   select(timestamp, status)
-
+   
 if (nrow(error_status) > 0) {
   knitr::kable(error_status)
 } else {
